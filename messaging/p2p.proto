@@ -1,0 +1,248 @@
+syntax = "proto3";
+package shared.proto.messaging.v1;
+
+option swift_prefix = "";
+option go_package = "github.com/maximeliseyev/construct-server/internal/proto/messaging/v1";
+
+import "services/user_service.proto";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2P Handoff Protocol
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Server-assisted P2P connection establishment.
+// Flow:
+//   1. Server detects both peers online + P2P capable
+//   2. Server sends P2PHandoffRequest to both peers via MessageStream
+//   3. Peers exchange ICE candidates through server signaling
+//   4. Direct QUIC connection established
+//   5. Peers send P2PHandoffAck(success=true)
+//   6. Server exits message relay path for this conversation
+//
+// Fallback: If P2P fails at any point, server automatically resumes relay.
+
+/// Server → Client: Initiate P2P handoff to direct connection.
+/// Sent via MessageStreamResponse as a signaling message.
+message P2PHandoffRequest {
+  /// Unique handoff session ID (UUID v4)
+  string session_id = 1;
+  
+  /// Target peer's user ID
+  string peer_id = 2;
+  
+  /// Target peer's device ID
+  string peer_device_id = 3;
+  
+  /// ICE candidates for reaching the peer
+  repeated ICECandidate candidates = 4;
+  
+  /// Connection timeout in milliseconds (suggested: 10000)
+  uint64 timeout_ms = 5;
+  
+  /// Server timestamp (Unix ms)
+  uint64 server_timestamp_ms = 6;
+}
+
+/// Client → Server: Acknowledge P2P handoff attempt.
+/// Sent via MessageStreamRequest to signal success/failure.
+message P2PHandoffAck {
+  /// Session ID from P2PHandoffRequest
+  string session_id = 1;
+  
+  /// Handoff succeeded (P2P connection established)
+  bool success = 2;
+  
+  /// Failure reason (if success=false)
+  /// Common values: "timeout", "nat_traversal_failed", "connection_refused",
+  ///                "peer_offline", "firewall_blocked"
+  string failure_reason = 3;
+  
+  /// Our ICE candidates for the peer to connect to
+  repeated ICECandidate my_candidates = 4;
+  
+  /// Measured P2P latency in milliseconds (if success=true)
+  uint32 measured_latency_ms = 5;
+}
+
+/// ICE candidate for P2P connection.
+/// Similar to WebRTC ICE candidates, simplified for Construct.
+message ICECandidate {
+  /// Candidate type
+  CandidateType type = 1;
+  
+  /// IP address and port (e.g., "192.168.1.100:8765")
+  string address = 2;
+  
+  /// Priority (lower = higher priority, typically based on type)
+  uint32 priority = 3;
+  
+  /// Foundation for ICE pairing (opaque string from ICE implementation)
+  string foundation = 4;
+  
+  /// Network interface name (e.g., "en0", "eth0")
+  string interface_name = 5;
+  
+  /// Transport protocol (always "udp" for QUIC)
+  string transport = 6;
+  
+  /// Generation (for ICE restarts, typically 0)
+  uint32 generation = 7;
+}
+
+/// ICE candidate type enum.
+enum CandidateType {
+  /// Local LAN address (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+  /// Highest priority (fastest, no NAT traversal needed)
+  LOCAL_LAN = 0;
+  
+  /// Public IP address (obtained via STUN)
+  /// Medium priority (may require NAT hole punching)
+  PUBLIC_IP = 1;
+  
+  /// Relay address (via TURN-like relay node)
+  /// Lowest priority (fallback when direct connection fails)
+  RELAY = 2;
+  
+  /// IPv6 link-local address (fe80::/10)
+  /// High priority on IPv6 networks
+  IPV6_LINK_LOCAL = 3;
+  
+  /// IPv6 global unicast address
+  /// Medium priority (depends on IPv6 connectivity)
+  IPV6_GLOBAL = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2P Presence & Capabilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Server → Client: Peer presence status update.
+/// Sent when a contact comes online/offline or changes capabilities.
+message PeerPresenceUpdate {
+  /// Peer's user ID
+  string peer_id = 1;
+  
+  /// True if peer is currently online
+  bool is_online = 2;
+  
+  /// Peer's device capabilities (includes P2P support flag)
+  DeviceCapabilities capabilities = 3;
+  
+  /// Last seen timestamp (Unix ms, 0 if currently online)
+  uint64 last_seen_ms = 4;
+  
+  /// Peer's current device ID (may change on re-login)
+  string device_id = 5;
+}
+
+/// Device capabilities (extend existing identity.DeviceCapabilities).
+/// This message is merged with the existing DeviceCapabilities in identity.proto.
+message P2PCapabilities {
+  /// Device supports P2P direct messaging (QUIC transport)
+  bool p2p_messaging = 1;
+  
+  /// Device supports local network mDNS discovery
+  bool lan_discovery = 2;
+  
+  /// Device can act as ICE relay for other peers (community relay node)
+  bool can_relay = 3;
+  
+  /// Device prefers P2P when available (user setting)
+  bool prefer_p2p = 4;
+  
+  /// Maximum P2P latency acceptable (ms, 0 = no preference)
+  uint32 max_p2p_latency_ms = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2P Status & Metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Client → Server: P2P connection status report.
+/// Sent periodically to help server optimize routing.
+message P2PStatusReport {
+  /// Session ID from handoff
+  string session_id = 1;
+  
+  /// Peer's user ID
+  string peer_id = 2;
+  
+  /// Current connection type
+  ConnectionType connection_type = 3;
+  
+  /// Measured latency to peer (ms)
+  uint32 latency_ms = 4;
+  
+  /// Packet loss percentage (0-100)
+  uint32 packet_loss_percent = 5;
+  
+  /// Connection uptime in seconds
+  uint64 uptime_secs = 6;
+  
+  /// Bytes sent via P2P
+  uint64 bytes_sent = 7;
+  
+  /// Bytes received via P2P
+  uint64 bytes_received = 8;
+  
+  /// Number of P2P failures in last hour
+  uint32 failures_last_hour = 9;
+}
+
+/// Connection type enum.
+enum ConnectionType {
+  /// Server relay (Tier 1 or Tier 2)
+  RELAY = 0;
+  
+  /// Direct P2P connection (Tier 3)
+  P2P_DIRECT = 1;
+  
+  /// LAN direct connection (same local network)
+  P2P_LAN = 2;
+  
+  /// Bonded: both P2P + relay active (multi-path)
+  BONDED = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2P Configuration (for future federation/relay discovery)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Relay node information for community relay network (Tier 2).
+message RelayNodeInfo {
+  /// Node's public identity (user ID of operator)
+  string node_id = 1;
+  
+  /// Relay address (IP:port or domain:port)
+  string address = 2;
+  
+  /// Supported protocols (e.g., ["quic", "ice"])
+  repeated string protocols = 3;
+  
+  /// Node's public key for TLS pinning
+  bytes public_key = 4;
+  
+  /// Geographic location (ISO 3166-1 alpha-2 country code)
+  string country_code = 5;
+  
+  /// Average latency from this client (ms)
+  uint32 avg_latency_ms = 6;
+  
+  /// Uptime percentage (0-100)
+  uint32 uptime_percent = 7;
+  
+  /// Community reputation score (0-100, higher = more trusted)
+  uint32 reputation_score = 8;
+}
+
+/// Server → Client: Recommended relay nodes for fallback.
+message RelayNodeRecommendation {
+  /// Recommended nodes (sorted by preference)
+  repeated RelayNodeInfo nodes = 1;
+  
+  /// Recommendation timestamp (Unix ms)
+  uint64 timestamp_ms = 2;
+  
+  /// TTL in seconds
+  uint32 ttl_secs = 3;
+}
