@@ -35,10 +35,7 @@ message MessageContent {
     // Poll/Survey
     PollMessage poll = 9;
 
-    // Album of one or more media items (images/videos) sent as a single message.
-    MediaAlbumMessage media_album = 10;
-
-    // Future content types: 11-20
+    // Future content types: 10-20
   }
 
   // Formatting metadata (applies to all types)
@@ -104,28 +101,8 @@ message MediaMessage {
   // Caption (optional text with media)
   optional string caption = 11;
 
-  // BlurHash placeholder string — compact blurred preview shown before the full
-  // media downloads (a few dozen bytes). Optional.
-  optional string blurhash = 12;
-
-  // Server media object id (used to fetch the encrypted blob; may differ from the
-  // host part of file_url). Carried explicitly so it survives the wire round-trip.
-  string media_id = 13;
-
   // Reserved for future media metadata
-  reserved 14 to 20;
-}
-
-// MediaAlbumMessage - one or more media items sent as a single message (album/grid).
-message MediaAlbumMessage {
-  // Media items, in display order (1..N).
-  repeated MediaMessage items = 1;
-
-  // Caption for the album as a whole (applies once, not per item).
-  optional string caption = 2;
-
-  // Quoted message (when the album is sent as a reply).
-  optional QuotedMessage quoted = 3;
+  reserved 12 to 20;
 }
 
 // MediaType - Type of media attachment
