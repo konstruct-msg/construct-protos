@@ -70,3 +70,9 @@ See `construct-server/shared/build.rs`.
 ```bash
 ./scripts/sync-from-server.sh /path/to/construct-server
 ```
+
+## Trademark
+
+**Konstruct™** / **Конструкт™** and the logo are trademarks of Maxim Eliseyev. The open-source
+license on this code does **not** grant trademark rights — see [TRADEMARK.md](TRADEMARK.md).
+Forks that distribute a modified version must rebrand.
