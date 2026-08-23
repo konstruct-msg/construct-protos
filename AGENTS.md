@@ -7,7 +7,22 @@ Context for AI agents working in this repository.
 ## What is construct-protos?
 
 Shared protobuf definitions for the entire Construct ecosystem.
-Used by: `construct-server`, `construct-engine`, `construct-tui`, `construct-android`, `construct-messenger`.
+Used by: `construct-server`, `construct-tui`, `construct-android`, `construct-messenger`.
+(`construct-engine` was retired 2026-07-28 and is not a consumer.)
+
+## Adding a value to `ContentType` — read this first
+
+`core/envelope.proto` owns which content types exist. It does **not** say what a client must do
+with one, and until 2026-08-23 nothing did: iOS and the TUI each carried their own classification
+and had already drifted on 13 and 23 without anything reporting it, because the symptom is a
+payload that renders as a bubble on one client and vanishes on the other.
+
+`conformance/knst_content_types.json` is now that authority, and every client has a test reading
+it. **A new content type gets its row in the same change as the enum value.** Run
+`conformance/check_content_types.py` — it fails if the proto and the vectors disagree about which
+values exist, which is the case where a client's conformance test would pass by never being asked.
+
+Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
 
 ---
 
