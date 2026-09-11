@@ -31,7 +31,7 @@ ROUTING_KINDS = {
     "SESSION_RESET_INIT",
 }
 SESSION_OPS = {"PING", "READY", "RESET_INIT", "END", None}
-SIDE_CHANNELS = {"call_signal", "delivery_receipt", None}
+SIDE_CHANNELS = {"call_signal", "delivery_receipt", "intake_key", None}
 
 
 def proto_content_types(text: str) -> dict[int, str]:
