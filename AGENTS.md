@@ -22,6 +22,10 @@ it. **A new content type gets its row in the same change as the enum value.** Ru
 `conformance/check_content_types.py` — it fails if the proto and the vectors disagree about which
 values exist, which is the case where a client's conformance test would pass by never being asked.
 
+History-snapshot vectors: `conformance/knst_history_snapshot.json`, checked by
+`conformance/check_history_snapshot.py`. Schema is `client/history_snapshot.proto` (never
+mirrored). Regenerate with `scripts/gen_history_snapshot_vectors.py`.
+
 Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
 
 ---
@@ -43,9 +47,17 @@ construct-protos/
 │   ├── key_service.proto
 │   ├── sentinel_service.proto
 │   └── mls_service.proto (stub — not in production)
-└── signaling/          — WebRTC signaling service
-    └── signaling_service.proto
+├── signaling/          — WebRTC signaling service
+│   └── signaling_service.proto
+└── client/             — Client-only schemas. Never mirrored, never enters construct-server.
 ```
+
+`client/` is client-only: never mirrored from `construct-server`, never copied into
+`construct-server/shared/proto`. `scripts/sync-from-server.sh` lists `core messaging
+services signaling` and does not touch this directory. iOS `generate_grpc_swift.sh`
+finds any `*.proto` in the repo; TUI `build.rs` lists files and adds a path here when
+that client implements the schema. Do not invent a second generator to keep these
+out of the server — the mirror's directory list is the mechanism.
 
 ---
 
@@ -87,6 +99,7 @@ buf generate --template buf.gen.kotlin.yaml
 - Proto field numbers are immutable once in production — never reuse a field number
 - Add new fields at the end of a message; never insert in the middle
 - When adding a new service, add it to this AGENTS.md service table
+- `client/` is not a server mirror. Do not add it to `sync-from-server.sh`. Do not copy it into `construct-server`.
 
 ---
 ---

@@ -1,0 +1,18 @@
+[package]
+name = "gen_history_crypto"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# Throwaway generator for knst_history_snapshot.json V19–V24.
+# Same crate versions as construct-core so signatures verify with hybrid_verify.
+
+[dependencies]
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+ed25519-dalek = { version = "2.0", features = ["std", "rand_core"] }
+hex = "0.4"
+hkdf = "0.12"
+ml-dsa = "0.1.1"
+ml-kem = "0.3.0"
+rand_core = "0.10"
+sha2 = "0.10"
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }

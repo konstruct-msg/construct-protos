@@ -18,7 +18,8 @@ construct-protos/
 │   ├── key_service.proto
 │   ├── mls_service.proto
 │   └── sentinel_service.proto
-└── signaling/      # WebRTC signaling (future)
+├── signaling/      # WebRTC signaling (future)
+└── client/         # Client-only schemas (never mirrored from / into construct-server)
 ```
 
 ## Services & Ports
