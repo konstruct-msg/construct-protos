@@ -23,7 +23,13 @@ it. **A new content type gets its row in the same change as the enum value.** Ru
 values exist, which is the case where a client's conformance test would pass by never being asked.
 
 History-snapshot vectors: `conformance/knst_history_snapshot.json`, checked by
-`conformance/check_history_snapshot.py`. Schema is `client/history_snapshot.proto` (never
+`conformance/check_history_snapshot.py`.
+
+Sticker vectors: `conformance/knst_sticker_ref.json`, checked by `conformance/check_sticker_ref.py`
+(needs `protoc`). A sticker is `MessageContent.sticker` *inside* the E2EE plaintext, so it is
+**not** a `ContentType` and gets no row in `knst_content_types.json`; what the clients must agree
+on instead is the bytes of the oneof and the validator (32-byte pack hash, 1..32-byte emoji), and
+that file is where they agree. Schema is `client/history_snapshot.proto` (never
 mirrored). Regenerate with `scripts/gen_history_snapshot_vectors.py`.
 
 Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
