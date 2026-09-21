@@ -29,7 +29,13 @@ Sticker vectors: `conformance/knst_sticker_ref.json`, checked by `conformance/ch
 (needs `protoc`). A sticker is `MessageContent.sticker` *inside* the E2EE plaintext, so it is
 **not** a `ContentType` and gets no row in `knst_content_types.json`; what the clients must agree
 on instead is the bytes of the oneof and the validator (32-byte pack hash, 1..32-byte emoji), and
-that file is where they agree. Schema is `client/history_snapshot.proto` (never
+that file is where they agree.
+
+Sticker packs: `messaging/sticker_pack.proto` (`StickerPackManifest`, `StickerEntry`). A pack's
+identity is the SHA-256 of its canonical bytes — proto3 binary, ascending field order, `pack_id`
+and `signature` cleared — and `conformance/knst_sticker_pack.json` fixes those bytes on one
+fixture pack; `check_sticker_pack.py` re-derives them. A client that hashes differently rejects
+every real pack, so a change to that message is a change to that file in the same commit. Schema is `client/history_snapshot.proto` (never
 mirrored). Regenerate with `scripts/gen_history_snapshot_vectors.py`.
 
 Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
