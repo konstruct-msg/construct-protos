@@ -58,7 +58,8 @@ construct-protos/
 │   ├── media_service.proto
 │   ├── key_service.proto
 │   ├── sentinel_service.proto
-│   └── mls_service.proto (stub — not in production)
+│   ├── mls_service.proto (stub — not in production)
+│   └── sticker_service.proto
 ├── signaling/          — WebRTC signaling service
 │   └── signaling_service.proto
 └── client/             — Client-only schemas. Never mirrored, never enters construct-server.
@@ -86,6 +87,7 @@ out of the server — the mirror's directory list is the mechanism.
 | KeyService | 50057 | X3DH pre-key management |
 | SentinelService | 50059 | Anti-spam, rate limiting, trust scoring |
 | SignalingService | 50060 | WebRTC SDP/ICE signaling |
+| StickerService | 50056 (with MediaService, media-service) | Public content-addressed sticker packs; every RPC unauthenticated, integrity by signed manifest + hashes |
 
 ---
 
