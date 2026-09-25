@@ -12,7 +12,7 @@ use hkdf::Hkdf;
 use ml_dsa::{B32, Keypair as _, MlDsa65, Signer as _, SigningKey as MlDsaSigningKey};
 #[allow(deprecated)]
 use ml_kem::{
-    Encapsulate, EncapsulationKey, ExpandedKeyEncoding, Generate, KeyExport, MlKem768,
+    Encapsulate, EncapsulationKey, ExpandedKeyEncoding, Generate, KeyExport, MlKem1024,
     array::Array,
 };
 use rand_core::{Infallible, TryCryptoRng, TryRng};
@@ -144,8 +144,8 @@ fn ed25519_only_sig(hybrid_sk: &[u8], message: &[u8]) -> Vec<u8> {
 fn mlkem_keypair(seed: [u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let mut rng = SeedRng::new(seed);
     #[allow(deprecated)]
-    let dk = ml_kem::DecapsulationKey::<MlKem768>::generate_from_rng(&mut rng);
-    let ek: &EncapsulationKey<MlKem768> = dk.encapsulation_key();
+    let dk = ml_kem::DecapsulationKey::<MlKem1024>::generate_from_rng(&mut rng);
+    let ek: &EncapsulationKey<MlKem1024> = dk.encapsulation_key();
     let pk = ek.to_bytes().to_vec();
     #[allow(deprecated)]
     let sk = dk.to_expanded_bytes().to_vec();
@@ -154,7 +154,7 @@ fn mlkem_keypair(seed: [u8; 32]) -> (Vec<u8>, Vec<u8>) {
 
 fn mlkem_encapsulate(pk: &[u8], seed: [u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let arr: &Array<u8, _> = pk.try_into().expect("ml-kem pk size");
-    let ek = EncapsulationKey::<MlKem768>::new(arr).expect("kyber pk");
+    let ek = EncapsulationKey::<MlKem1024>::new(arr).expect("kyber pk");
     let mut rng = SeedRng::new(seed);
     let (ct, ss) = ek.encapsulate_with_rng(&mut rng);
     (ct.to_vec(), ss.to_vec())
