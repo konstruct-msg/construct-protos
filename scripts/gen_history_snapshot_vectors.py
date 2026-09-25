@@ -26,9 +26,9 @@ OUT = ROOT / "conformance" / "knst_history_snapshot.json"
 MAGIC = b"CTH1"
 VERSION = 0x01
 MAX_RECORD_BYTES = 512 * 1024 * 1024
-OPENING_LEN = 6575
+OPENING_LEN = 7055
 REPLY_LEN = 5421
-CTHF_HEADER_LEN = 6582
+CTHF_HEADER_LEN = 7062
 
 RT_END = 0x00
 RT_MANIFEST = 0x01
@@ -523,7 +523,7 @@ def main() -> int:
     v19 = build_opening(keys)
     v20 = build_reply(keys)
     v21 = build_opening(keys, ed_only=True)
-    v22 = build_opening(keys, kem_ct=bytes(1088))
+    v22 = build_opening(keys, kem_ct=bytes(1568))
     v23 = build_cthf(keys)
     v24 = build_cthf(keys, kyber_key_id=keys["wrong_kyber_key_id"])
 
@@ -631,7 +631,7 @@ def main() -> int:
             "ctt1_v2_opening",
             "malformed",
             hex_payload=v22.hex(),
-            note="type 0x02 with 1088 zero kemCt is malformed",
+            note="type 0x02 with 1568 zero kemCt is malformed",
         ),
         vec(
             "V23",
@@ -673,7 +673,7 @@ def main() -> int:
             "ctt1_v2_reply_len": REPLY_LEN,
             "cthf_header_len": CTHF_HEADER_LEN,
             "hybrid_signature_len": 3373,
-            "mlkem768_ct_len": 1088,
+            "mlkem1024_ct_len": 1568,
             "snapshot_id": SNAPSHOT_ID.hex(),
             "user_id": USER_ID.hex(),
         },

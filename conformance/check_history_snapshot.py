@@ -3,7 +3,7 @@
 
 Does not verify hybrid signatures (that is a client test against construct-core).
 Does check: the 24 named vectors exist, CTH1 record order and phase legality,
-frame lengths 6575 / 5421 / 6582, payload_len cap, and that the proto has a
+frame lengths 7055 / 5421 / 7062, payload_len cap, and that the proto has a
 `oneof body` and no HistoryBodyKind.
 
 Exit 1 on any disagreement. No dependencies; run it from anywhere.
@@ -21,9 +21,9 @@ ROOT = Path(__file__).resolve().parent.parent
 VECTORS = Path(__file__).resolve().parent / "knst_history_snapshot.json"
 PROTO = ROOT / "client" / "history_snapshot.proto"
 
-OPENING_LEN = 6575
+OPENING_LEN = 7055
 REPLY_LEN = 5421
-CTHF_HEADER_LEN = 6582
+CTHF_HEADER_LEN = 7062
 MAX_RECORD_BYTES = 512 * 1024 * 1024
 REQUIRED_IDS = [f"V{i}" for i in range(1, 25)]
 
