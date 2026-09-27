@@ -576,3 +576,23 @@ message SenderCertificate {
   // Reserved for future cert fields (e.g., PQ signature, capabilities)
   reserved 8 to 15;
 }
+
+// OwnDeviceCopy — Envelope.encrypted_payload of every SENDER_SYNC (content_type 23).
+//
+// A copy to one of our own devices goes unsealed (the relay already knows the pair is
+// (me, me)), so it has no SealedInner to carry the sender certificate in. The receiving
+// sibling needs the certificate anyway: a first message opens a session with the identity
+// key the certificate names, once the core has checked the server's signature
+// (construct-docs/decisions/first-message-opens-without-the-server.md). Without it a sibling
+// could open a copy only by fetching the sender's bundle.
+//
+// In the clear, like the rest of this envelope: it names our own account and device to the
+// server that issued it.
+message OwnDeviceCopy {
+  // The sending device's current certificate. Absent only when the sender could not obtain
+  // one; a copy on an existing session still opens, a first message does not.
+  SenderCertificate sender_certificate = 1;
+
+  // The core's wire payload (construct-core wire_payload.rs), exactly as for any message.
+  bytes wire_payload = 2;
+}
