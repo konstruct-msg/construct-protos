@@ -140,7 +140,7 @@
       "routing_kind": "CONTROL_MESSAGE",
       "session_control_op": "END",
       "framed_side_channel": null,
-      "sealed_inner_content_type": true
+      "sealed_inner_content_type": false
     },
     {
       "value": 22,
