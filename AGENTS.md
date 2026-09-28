@@ -22,6 +22,11 @@ it. **A new content type gets its row in the same change as the enum value.** Ru
 `conformance/check_content_types.py` — it fails if the proto and the vectors disagree about which
 values exist, which is the case where a client's conformance test would pass by never being asked.
 
+Invite vectors: `conformance/knst_invite.json`, checked by `conformance/check_invite.py`
+(`--write` regenerates). iOS, Android and the server each build the v5 canonical string and the
+compact binary independently, and a disagreement surfaces only at redeem as "invalid signature" —
+so a change to `InviteToken` or the CIv1 layout is a change to that file in the same commit.
+
 History-snapshot vectors: `conformance/knst_history_snapshot.json`, checked by
 `conformance/check_history_snapshot.py`.
 
