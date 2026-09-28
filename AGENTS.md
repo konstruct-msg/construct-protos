@@ -22,6 +22,10 @@ it. **A new content type gets its row in the same change as the enum value.** Ru
 `conformance/check_content_types.py` — it fails if the proto and the vectors disagree about which
 values exist, which is the case where a client's conformance test would pass by never being asked.
 
+Contact-card vectors: `conformance/knst_contact_card.json`, checked by
+`conformance/check_contact_card.py` (needs `protoc`). How a type-27 payload is read — a
+`ContactCard`, or at exactly 32 bytes a bare intake key from before the card — by both clients.
+
 Invite vectors: `conformance/knst_invite.json`, checked by `conformance/check_invite.py`
 (`--write` regenerates). iOS, Android and the server each build the v5 canonical string and the
 compact binary independently, and a disagreement surfaces only at redeem as "invalid signature" —
