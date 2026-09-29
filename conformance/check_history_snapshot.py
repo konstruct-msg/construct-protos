@@ -2,9 +2,10 @@
 """Structural check of knst_history_snapshot.json against the frozen layout.
 
 Does not verify hybrid signatures (that is a client test against construct-core).
-Does check: the 24 named vectors exist, CTH1 record order and phase legality,
-frame lengths 7055 / 5421 / 7062, payload_len cap, and that the proto has a
-`oneof body` and no HistoryBodyKind.
+Does check: the 28 named vectors exist, CTH1 record order and phase legality,
+the MediaBlob field order, frame lengths 7055 / 5421 / 7062, payload_len cap,
+the channel key derivation (HKDF, stdlib), the CTHF chunk framing, and that the
+proto has a `oneof body` and no HistoryBodyKind.
 
 Exit 1 on any disagreement. No dependencies; run it from anywhere.
 """
@@ -25,7 +26,9 @@ OPENING_LEN = 7055
 REPLY_LEN = 5421
 CTHF_HEADER_LEN = 7062
 MAX_RECORD_BYTES = 512 * 1024 * 1024
-REQUIRED_IDS = [f"V{i}" for i in range(1, 25)]
+REQUIRED_IDS = [f"V{i}" for i in range(1, 29)]
+KEM_CT_LEN = 1568
+MAX_SEALED_CHUNK = 65_536 + 12 + 16
 
 RT = {
     0x00: "end",
@@ -76,6 +79,60 @@ def parse_cth1(data: bytes) -> tuple[list[int], list[int]]:
     if i != len(data):
         raise ValueError("trailing bytes after End")
     return types, lens
+
+
+def media_payloads(data: bytes) -> list[bytes]:
+    """The payloads of the MediaBlob records in a CTH1 stream."""
+    out, i = [], 5
+    while i < len(data) and data[i] != 0x00:
+        rtype = data[i]
+        (plen,) = struct.unpack_from("<Q", data, i + 1)
+        if rtype == 0x08:
+            out.append(data[i + 9 : i + 9 + plen])
+        i += 9 + plen
+    return out
+
+
+def media_fields_in_order(payload: bytes) -> bool:
+    """HistoryMediaBlob fields must be 1, 2, 3 in that order (each optional but blob last)."""
+    numbers, i = [], 0
+    while i < len(payload):
+        key = payload[i]
+        i += 1
+        length, shift = 0, 0
+        while True:
+            b = payload[i]
+            i += 1
+            length |= (b & 0x7F) << shift
+            shift += 7
+            if b < 0x80:
+                break
+        numbers.append(key >> 3)
+        i += length
+    return numbers == sorted(numbers) and len(set(numbers)) == len(numbers)
+
+
+def hkdf_sha256(ikm: bytes, salt: bytes, info: bytes) -> bytes:
+    import hashlib
+    import hmac
+
+    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+    return hmac.new(prk, info + b"\x01", hashlib.sha256).digest()
+
+
+def chunk_frames(data: bytes) -> list[tuple[int, int]] | str:
+    """(offset, sealed_len) of each chunk after a CTHF header, or why the framing is wrong."""
+    frames, i = [], CTHF_HEADER_LEN
+    while True:
+        if i + 4 > len(data):
+            return "no EOF frame"
+        (n,) = struct.unpack_from("<I", data, i)
+        if n == 0:
+            return frames if i + 4 == len(data) else "bytes after EOF"
+        if n > MAX_SEALED_CHUNK or n < 12 + 16 + 1:
+            return f"chunk length {n} no writer produces"
+        frames.append((i, n))
+        i += 4 + n
 
 
 def names_of(types: list[int]) -> list[str]:
@@ -129,7 +186,7 @@ def main() -> int:
             errors.append(f"{vid} is missing")
     for vid in sorted(rows):
         if vid not in REQUIRED_IDS:
-            errors.append(f"{vid} is extra — the frozen list is V1–V24")
+            errors.append(f"{vid} is extra — the frozen list is V1–V28")
 
     consts = doc.get("$constants", {})
     if consts.get("ctt1_v2_opening_len") != OPENING_LEN:
@@ -175,6 +232,8 @@ def main() -> int:
                 errors.append(f"{where}: missing phase")
             else:
                 reason = phase_ok(phase, types)
+                if reason is None and not all(media_fields_in_order(m) for m in media_payloads(data)):
+                    reason = "MediaBlob fields out of order"
                 if expect in {"record_order", "malformed"}:
                     if reason is None and expect == "record_order":
                         errors.append(f"{where}: expected a record_order violation, parser saw none")
@@ -204,7 +263,7 @@ def main() -> int:
             if data[:5] != b"CTT1\x02":
                 errors.append(f"{where}: prefix is not CTT1 v2")
             if vid == "V22":
-                kem = data[2114:3202]
+                kem = data[2114 : 2114 + KEM_CT_LEN]
                 if any(kem):
                     errors.append(f"{where}: kemCt is not all zeros")
                 if expect != "malformed":
@@ -230,6 +289,30 @@ def main() -> int:
             if vid == "V23":
                 if "chunk0_combined" not in row or "file_channel_key" not in row:
                     errors.append(f"{where}: missing chunk 0 / key fields")
+
+        elif kind == "channel_key":
+            ikm = bytes.fromhex(row["ecdh"]) + bytes.fromhex(row["kem_shared_secret"])
+            snap = bytes.fromhex(row["snapshot_id"])
+            if hkdf_sha256(ikm, b"construct_transfer_v2", snap).hex() != row.get("nearby_key"):
+                errors.append(f"{where}: nearby_key is not HKDF(ecdh || kem_ss, construct_transfer_v2, snapshot_id)")
+            if hkdf_sha256(ikm, b"construct_history_file_v1", snap).hex() != row.get("file_key"):
+                errors.append(f"{where}: file_key is not HKDF(ecdh || kem_ss, construct_history_file_v1, snapshot_id)")
+
+        elif kind == "cthf_file":
+            if "from" in row:
+                if row.get("from") not in rows or row.get("mutation") != "swap_chunks_0_1":
+                    errors.append(f"{where}: a derived file names V27 and swap_chunks_0_1")
+                if expect != "chunk_open_failed":
+                    errors.append(f"{where}: expect should be chunk_open_failed")
+                continue
+            data = bytes.fromhex(hx)
+            if data[:CTHF_HEADER_LEN] != bytes.fromhex(rows["V23"]["hex"]):
+                errors.append(f"{where}: header is not V23's")
+            frames = chunk_frames(data)
+            if isinstance(frames, str):
+                errors.append(f"{where}: {frames}")
+            elif len(frames) != row.get("chunk_count") or len(frames) < 2:
+                errors.append(f"{where}: {len(frames)} chunks, want {row.get('chunk_count')} (at least 2)")
 
         elif kind == "preimage":
             if expect != "exact_hex":

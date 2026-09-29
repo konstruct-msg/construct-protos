@@ -234,6 +234,52 @@ def encode_media() -> bytes:
     return p_string(1, "media-1") + p_string(2, "image/jpeg") + p_bytes(3, b"\xff\xd8jpeg")
 
 
+def encode_media_blob_first() -> bytes:
+    """The canonical-order amendment: a blob ahead of media_id cannot be streamed."""
+    return p_bytes(3, b"\xff\xd8jpeg") + p_string(1, "media-1") + p_string(2, "image/jpeg")
+
+
+# A blob that crosses a chunk boundary: 70 000 bytes, the first 65 536 - head in chunk 0.
+SPLIT_BLOB = bytes((i * 31 + 7) % 256 for i in range(70_000))
+
+
+def encode_split_media() -> bytes:
+    return p_string(1, "media-split") + p_string(2, "video/mp4") + p_bytes(3, SPLIT_BLOB)
+
+
+# --- channel key and sealed chunks ----------------------------------------------
+
+CHUNK_PLAINTEXT = 65_536
+
+
+def hkdf_sha256(ikm: bytes, salt: bytes, info: bytes, length: int = 32) -> bytes:
+    import hmac
+
+    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+    out, block, counter = b"", b"", 1
+    while len(out) < length:
+        block = hmac.new(prk, block + info + bytes([counter]), hashlib.sha256).digest()
+        out += block
+        counter += 1
+    return out[:length]
+
+
+def seal_stream(key: bytes, plaintext: bytes) -> bytes:
+    """64 KiB chunks: [4] len LE, nonce (index LE ‖ 8 zeros), ChaCha20-Poly1305 with
+    AAD snapshot_id ‖ user_id ‖ index LE; then the EOF frame."""
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    aead = ChaCha20Poly1305(key)
+    out = bytearray()
+    for index, at in enumerate(range(0, len(plaintext), CHUNK_PLAINTEXT)):
+        nonce = struct.pack("<I", index) + bytes(8)
+        aad = SNAPSHOT_ID + USER_ID + struct.pack("<I", index)
+        sealed = nonce + aead.encrypt(nonce, plaintext[at : at + CHUNK_PLAINTEXT], aad)
+        out += struct.pack("<I", len(sealed)) + sealed
+    out += bytes(4)
+    return bytes(out)
+
+
 # --- CTH1 stream ---------------------------------------------------------------
 
 def record(rtype: int, payload: bytes) -> bytes:
@@ -527,6 +573,18 @@ def main() -> int:
     v23 = build_cthf(keys)
     v24 = build_cthf(keys, kyber_key_id=keys["wrong_kyber_key_id"])
 
+    v25 = stream([(RT_MANIFEST, man2), (RT_MEDIA, encode_media_blob_first())])
+
+    # Fixed inputs: the derivation does not care where they came from.
+    ck_ecdh = bytes(range(32))
+    ck_kem = bytes(range(32, 64))
+    ck_nearby = hkdf_sha256(ck_ecdh + ck_kem, b"construct_transfer_v2", SNAPSHOT_ID)
+    ck_file = hkdf_sha256(ck_ecdh + ck_kem, b"construct_history_file_v1", SNAPSHOT_ID)
+
+    file_key = bytes.fromhex(keys["file_channel_key"])
+    file_cth1 = stream([(RT_MANIFEST, man3), (RT_MESSAGE, msg_text), (RT_MEDIA, encode_split_media())])
+    v27 = v23 + seal_stream(file_key, file_cth1)
+
     vectors = [
         vec("V1", "manifest_phase_1", "cth1_stream", "decode_ok", hex_payload=v1.hex(), records=["manifest", "end"], phase=1),
         vec("V2", "manifest_phase_2", "cth1_stream", "decode_ok", hex_payload=v2.hex(), records=["manifest", "end"], phase=2),
@@ -654,6 +712,54 @@ def main() -> int:
             "kem_key_id_mismatch",
             hex_payload=v24.hex(),
             extra={"recipient_kyber_key_id": keys["wrong_kyber_key_id"], "current_kyber_key_id": keys["kyber_key_id"]},
+        ),
+        vec(
+            "V25",
+            "media_blob_field_first",
+            "cth1_stream",
+            "malformed",
+            hex_payload=v25.hex(),
+            records=["manifest", "media", "end"],
+            phase=2,
+            note="HistoryMediaBlob fields must come in order 1, 2, 3; a blob before media_id cannot be streamed",
+        ),
+        vec(
+            "V26",
+            "channel_key_both_salts",
+            "channel_key",
+            "exact_hex",
+            extra={
+                "ecdh": ck_ecdh.hex(),
+                "kem_shared_secret": ck_kem.hex(),
+                "snapshot_id": SNAPSHOT_ID.hex(),
+                "nearby_key": ck_nearby.hex(),
+                "file_key": ck_file.hex(),
+            },
+            note="HKDF-SHA256(ecdh || kem_ss, salt, info = snapshot_id); nearby salt construct_transfer_v2, file salt construct_history_file_v1",
+        ),
+        vec(
+            "V27",
+            "cthf_file_stream",
+            "cthf_file",
+            "decode_ok",
+            hex_payload=v27.hex(),
+            records=["manifest", "message", "media", "end"],
+            phase=3,
+            extra={
+                "media_id": "media-split",
+                "media_len": len(SPLIT_BLOB),
+                "media_sha256": hashlib.sha256(SPLIT_BLOB).hexdigest(),
+                "chunk_count": (len(file_cth1) + CHUNK_PLAINTEXT - 1) // CHUNK_PLAINTEXT,
+            },
+            note="V23's header, then the sealed chunk stream and EOF; the blob crosses the chunk boundary and must arrive byte-exact",
+        ),
+        vec(
+            "V28",
+            "cthf_chunks_swapped",
+            "cthf_file",
+            "chunk_open_failed",
+            extra={"from": "V27", "mutation": "swap_chunks_0_1"},
+            note="V27 with its first two sealed chunks (length prefix included) exchanged; chunk 0 must not open",
         ),
     ]
 
