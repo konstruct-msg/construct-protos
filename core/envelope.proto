@@ -556,6 +556,18 @@ message SealedInner {
   // tags, the envelope is silently charged a token, and nothing reports a mismatch.
   bytes intake_tag_sealed = 20;
 
+  // Session envelope (construct-core 0.26; construct-docs
+  // decisions/sealed-envelope-keyed-by-the-session.md, PQC-1). Once two devices hold a session,
+  // a message goes as
+  //   nonce(12) ‖ tag(16) ‖ ChaCha20-Poly1305(k_env, kind ‖ body, ad = tag)
+  // with keys derived from the session's post-quantum root, and the recipient finds who wrote
+  // it by the tag (`OrchestratorCore.open_envelope`). When present:
+  //   • sender_cert_ciphertext and encrypted_payload are EMPTY — the wire payload, header
+  //     included, is inside the envelope, and the session names the writer;
+  //   • the server treats it as opaque, as it does encrypted_payload.
+  // Empty = the first flight of a session, which still carries the certificate.
+  bytes session_envelope = 21;
+
   // Reserved for future sealed fields
   reserved 8 to 15;
 }
