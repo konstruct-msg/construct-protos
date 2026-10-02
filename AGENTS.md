@@ -28,7 +28,8 @@ Contact-card vectors: `conformance/knst_contact_card.json`, checked by
 
 KNST frame vectors: `conformance/knst_frame.json`, checked by `conformance/check_knst_frame.py`
 (`--write` regenerates). The 30-byte plaintext header every body is framed with, and when a frame
-is a control frame (one message, total_chunks 1) and what its body is. iOS, Android, the TUI and
+is a control frame (one message, total_chunks 1) and what its body is; and, under `encode`, how a
+body is split into frames (3770 bytes each, at most 256). iOS, Android, the TUI and
 construct-core read it; until 2026-10-02 only their agreement fixed it.
 
 Profile vectors: `conformance/knst_profile_share.json`, checked by

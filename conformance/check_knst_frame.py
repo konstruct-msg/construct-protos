@@ -53,6 +53,24 @@ def read(data: bytes):
 
 SIGNAL = bytes.fromhex("0a0663616c6c2d31")   # some call-signal proto bytes
 
+# Splitting a body into frames: every frame carries at most CHUNK_PAYLOAD bytes, all of them the
+# same message id, content type and plaintext_length (the whole body's), chunk_index 0..total-1.
+# An empty body is one frame. More than MAX_CHUNKS frames is refused, not truncated.
+CHUNK_PAYLOAD = 3770
+MAX_CHUNKS = 256
+
+
+def body(n: int) -> bytes:
+    return bytes(i % 251 for i in range(n))
+
+
+def chunks(payload: bytes, content_type: int):
+    total = max(1, -(-len(payload) // CHUNK_PAYLOAD))
+    if total > MAX_CHUNKS:
+        return None
+    return [frame(payload[i * CHUNK_PAYLOAD:(i + 1) * CHUNK_PAYLOAD], content_type,
+                  index=i, total=total, length=len(payload)) for i in range(total)]
+
 
 def build() -> dict:
     raw = [
@@ -73,12 +91,26 @@ def build() -> dict:
         if parsed:
             case.update(parsed)
         cases.append(case)
+    encode = []
+    for name, size in [("empty", 0), ("small", 5), ("exactly_one_chunk", CHUNK_PAYLOAD),
+                       ("one_byte_over", CHUNK_PAYLOAD + 1), ("three_chunks", 2 * CHUNK_PAYLOAD + 1)]:
+        frames = chunks(body(size), 1)
+        encode.append({"name": name, "payload_len": size, "content_type": 1,
+                       "frames": [f.hex() for f in frames]})
+    encode.append({"name": "over_max_chunks", "payload_len": MAX_CHUNKS * CHUNK_PAYLOAD + 1,
+                   "content_type": 1, "frames": None})
     return {
         "_doc": "KNST plaintext frame (30-byte header, big-endian). is_frame: magic KNST, version 1, "
                 "at least 30 bytes. control: total_chunks == 1 and plaintext_length <= payload "
-                "length; body = the first plaintext_length bytes of the payload. Checked by "
+                "length; body = the first plaintext_length bytes of the payload. encode: a body "
+                "split into frames of at most chunk_payload_size bytes, message id as in cases, "
+                "payload byte i = i mod 251; frames null = refused (over max_chunks). Checked by "
                 "check_knst_frame.py.",
+        "message_id": str(MESSAGE_ID),
+        "chunk_payload_size": CHUNK_PAYLOAD,
+        "max_chunks": MAX_CHUNKS,
         "cases": cases,
+        "encode": encode,
     }
 
 
