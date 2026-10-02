@@ -26,6 +26,11 @@ Contact-card vectors: `conformance/knst_contact_card.json`, checked by
 `conformance/check_contact_card.py` (needs `protoc`). How a type-27 payload is read — a
 `ContactCard`, or at exactly 32 bytes a bare intake key from before the card — by both clients.
 
+KNST frame vectors: `conformance/knst_frame.json`, checked by `conformance/check_knst_frame.py`
+(`--write` regenerates). The 30-byte plaintext header every body is framed with, and when a frame
+is a control frame (one message, total_chunks 1) and what its body is. iOS, Android, the TUI and
+construct-core read it; until 2026-10-02 only their agreement fixed it.
+
 Profile vectors: `conformance/knst_profile_share.json`, checked by
 `conformance/check_profile_share.py` (needs `protoc`, `--write` regenerates). How a
 CONTENT_TYPE_PROFILE (29) payload reads — the avatar is set, removed or unchanged — and when a
