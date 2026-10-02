@@ -26,6 +26,11 @@ Contact-card vectors: `conformance/knst_contact_card.json`, checked by
 `conformance/check_contact_card.py` (needs `protoc`). How a type-27 payload is read — a
 `ContactCard`, or at exactly 32 bytes a bare intake key from before the card — by both clients.
 
+Profile vectors: `conformance/knst_profile_share.json`, checked by
+`conformance/check_profile_share.py` (needs `protoc`, `--write` regenerates). How a
+CONTENT_TYPE_PROFILE (29) payload reads — the avatar is set, removed or unchanged — and when a
+receiver applies one: only if `edited_at_ms` is newer than the one it holds. Both clients read it.
+
 Invite vectors: `conformance/knst_invite.json`, checked by `conformance/check_invite.py`
 (`--write` regenerates). iOS, Android and the server each build the v5 canonical string and the
 compact binary independently, and a disagreement surfaces only at redeem as "invalid signature" —
