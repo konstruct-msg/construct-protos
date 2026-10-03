@@ -58,6 +58,15 @@ fixture pack; `check_sticker_pack.py` re-derives them. A client that hashes diff
 every real pack, so a change to that message is a change to that file in the same commit. Schema is `client/history_snapshot.proto` (never
 mirrored). Regenerate with `scripts/gen_history_snapshot_vectors.py`.
 
+Server-trust vectors: `conformance/knst_server_trust.json`, checked by
+`conformance/check_server_trust.py` (standard library only). They fix what the offline root signs
+(a delegation of a server key), what a delegated key signs (`label ‖ kid ‖ body`) and the bodies of
+`SenderCertificate.server_signature_hybrid` and `SignedTreeHead.signature`. The authority is the
+`construct-server-trust` crate in construct-core, which writes the file
+(`write_server_trust_vectors`); the core and construct-server verify its signatures. A change to
+either message's signed fields is a change to that file in the same commit
+(`construct-docs/decisions/server-keys-rooted-offline-and-hybrid.md`).
+
 Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
 
 ---
