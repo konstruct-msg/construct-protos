@@ -140,6 +140,16 @@ def build():
 
         case("manual_reset_from_veil", ACTIVE, "auto", [{"kind": "manual_reset"}], direct(0), [STOP, UNROUTE, INVALIDATE]),
         case("manual_reset_on_direct", direct(0), "auto", [{"kind": "manual_reset"}], direct(0), [INVALIDATE]),
+
+        # On never goes direct (construct-docs decisions/veil-on-never-goes-direct.md, 2026-10-13):
+        # whatever would land it on the direct path sends it back to the front. With no front up
+        # the client is offline, never direct.
+        case("on_cooldown_ends_probing_not_direct", {"kind": "veil_cooldown", "until_ms": NOW}, "on",
+             [{"kind": "cooldown_elapsed"}], PROBING, [INVALIDATE, START]),
+        case("on_manual_reset_probes_again", ACTIVE, "on", [{"kind": "manual_reset"}],
+             PROBING, [STOP, UNROUTE, INVALIDATE, START]),
+        case("on_manual_reset_from_direct_probes", direct(0), "on", [{"kind": "manual_reset"}],
+             PROBING, [INVALIDATE, START]),
     ]
     return {
         "_doc": ("When a client leaves the direct path for VEIL and when it comes back. Not protocol: each platform "
