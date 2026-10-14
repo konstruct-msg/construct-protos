@@ -97,7 +97,10 @@ def build():
         case("auth_rejected_ignored", direct(1), "auto", [rpc_failed("auth_rejected")], direct(1), []),
 
         case("toggling_auto_does_not_force_veil", direct(0), "auto", [{"kind": "veil_mode_changed", "censored": True}], direct(0), []),
-        case("turning_on_probes", direct(0), "on", [{"kind": "veil_mode_changed", "censored": False}], PROBING, [START]),
+        # Turning `on` drops what is open on the direct path before the tunnel exists: a channel or
+        # stream opened under `auto` must not carry traffic once the person chose never-direct
+        # (2026-10-14: an open QUIC stream and the cached channel kept going direct for 30 s).
+        case("turning_on_probes", direct(0), "on", [{"kind": "veil_mode_changed", "censored": False}], PROBING, [INVALIDATE, START]),
         case("turning_off_leaves_veil", ACTIVE, "off", [{"kind": "veil_mode_changed", "censored": False}],
              direct(0), [STOP, UNROUTE, INVALIDATE]),
         case("path_change_in_auto_does_not_start_proxy", ACTIVE, "auto",
