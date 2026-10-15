@@ -37,6 +37,13 @@ Profile vectors: `conformance/knst_profile_share.json`, checked by
 CONTENT_TYPE_PROFILE (29) payload reads — the avatar is set, removed or unchanged — and when a
 receiver applies one: only if `edited_at_ms` is newer than the one it holds. Both clients read it.
 
+Read-marker vectors: `conformance/knst_read_markers.json`, checked by
+`conformance/check_read_markers.py` (needs `protoc`, `--write` regenerates). How a type-30
+`ReadMarkers` payload reads, when a marker moves a chat's read boundary (strictly later on
+`(sent_at_ms, message_id)`; from anyone but the own account — dropped), and which incoming
+messages a boundary covers. Type 30 is `own_devices_only` in `knst_content_types.json`: never
+addressed to a contact. `decisions/read-state-syncs-between-own-devices.md`.
+
 Invite vectors: `conformance/knst_invite.json`, checked by `conformance/check_invite.py`
 (`--write` regenerates). iOS, Android and the server each build the v5 canonical string and the
 compact binary independently, and a disagreement surfaces only at redeem as "invalid signature" —
