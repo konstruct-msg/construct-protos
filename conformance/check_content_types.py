@@ -31,7 +31,7 @@ ROUTING_KINDS = {
     "SESSION_RESET_INIT",
 }
 SESSION_OPS = {"PING", "READY", "RESET_INIT", "END", None}
-SIDE_CHANNELS = {"call_signal", "delivery_receipt", "contact_card", "profile", None}
+SIDE_CHANNELS = {"call_signal", "delivery_receipt", "contact_card", "profile", "read_sync", None}
 
 
 def proto_content_types(text: str) -> dict[int, str]:
@@ -80,6 +80,15 @@ def main() -> int:
         # A side channel is a handler for a *framed* payload — it cannot exist off byte 5.
         if row["framed_side_channel"] and not row["knst_byte5"]:
             errors.append(f"{where}: has a framed_side_channel but is not carried in KNST byte 5")
+        # Own-devices-only travels the own-device path: routed as SENDER_SYNC, never named on a
+        # SealedInner (that is the peer path), never a transcript row of its own.
+        if not isinstance(row.get("own_devices_only"), bool):
+            errors.append(f"{where}: own_devices_only must be true or false")
+        elif row["own_devices_only"]:
+            if row["routing_kind"] != "SENDER_SYNC":
+                errors.append(f"{where}: own_devices_only but routing_kind is not SENDER_SYNC")
+            if row["sealed_inner_content_type"]:
+                errors.append(f"{where}: own_devices_only but may appear on a SealedInner (the peer path)")
         # "Not carried" and "has a disposition in the transcript" cannot both be true.
         if row["disposition"] == "not_carried" and row["knst_byte5"]:
             errors.append(f"{where}: marked not_carried but knst_byte5 is true")
