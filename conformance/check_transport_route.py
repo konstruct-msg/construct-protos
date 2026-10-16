@@ -8,6 +8,9 @@ deciding differently still read each other's messages — so each platform keeps
 implementation, and both run these cases so neither drifts without a red test.
 Decision: construct-docs decisions/transport-route-per-platform-shared-vectors.md.
 
+Every RPC event names its `lane`: `auth` (the authenticated channel, which also carries the stream)
+or `sealed` (the channel with no identity, its own connection). VEIL counts soft failures per lane.
+
 A case either asks for the starting state (`initial`) or runs `events` from `state` under `mode`
 and expects the final state and the effects of the last event, in order. Times are Unix
 milliseconds; `now_ms` is fixed per case.
@@ -33,15 +36,24 @@ def direct(fails):
 
 PROBING = {"kind": "veil_probing"}
 OFFLINE = {"kind": "offline"}
-ACTIVE = {"kind": "veil_active", "relay": RELAY, "port": PORT, "since_ms": 1}
+SOFT_FAIL_THRESHOLD = 3
 
 
-def rpc_failed(failure, via="direct", foreground=True):
-    return {"kind": "rpc_failed", "failure": failure, "via": via, "foreground": foreground}
+def active(auth=0, sealed=0, since_ms=1, port=PORT):
+    """VEIL up. `soft_fails`: soft transport failures in a row through it, per channel (lane)."""
+    return {"kind": "veil_active", "relay": RELAY, "port": port, "since_ms": since_ms,
+            "soft_fails": {"auth": auth, "sealed": sealed}}
 
 
-def rpc_succeeded(via="direct"):
-    return {"kind": "rpc_succeeded", "via": via, "latency_ms": 50}
+ACTIVE = active()
+
+
+def rpc_failed(failure, via="direct", foreground=True, lane="auth"):
+    return {"kind": "rpc_failed", "failure": failure, "via": via, "foreground": foreground, "lane": lane}
+
+
+def rpc_succeeded(via="direct", lane="auth"):
+    return {"kind": "rpc_succeeded", "via": via, "latency_ms": 50, "lane": lane}
 
 
 def stream_failed(failure, via="direct", method="h2"):
@@ -110,7 +122,7 @@ def build():
 
         case("probing_to_active", PROBING, "auto",
              [{"kind": "proxy_started", "relay": RELAY, "port": 7, "restarted": True}],
-             {"kind": "veil_active", "relay": RELAY, "port": 7, "since_ms": NOW},
+             active(port=7, since_ms=NOW),
              [eff("set_veil_port", port=7), INVALIDATE]),
         case("probing_failure_cools_down", PROBING, "auto",
              [{"kind": "proxy_start_failed", "relay": None, "reason": "timeout"}],
@@ -122,7 +134,30 @@ def build():
              [rpc_failed("transport_unknown")], {"kind": "veil_cooldown", "until_ms": NOW}, []),
 
         case("active_rotates_on_a_hard_failure", ACTIVE, "auto", [rpc_failed("stale_local_proxy", via="veil")], PROBING, ROTATE),
-        case("active_reconnects_on_a_soft_failure", ACTIVE, "auto", [rpc_failed("stream_timeout", via="veil")], ACTIVE, [INVALIDATE]),
+        case("active_reconnects_on_a_soft_failure", ACTIVE, "auto", [rpc_failed("stream_timeout", via="veil")], active(auth=1), [INVALIDATE]),
+        # A relay can take a connection and then carry nothing over it. Every failure is then soft
+        # (a timeout, a closed connection), and reconnecting goes through the same proxy and the
+        # same relay. Until 2026-10-16 that went on for ever: testers in Russia could receive on
+        # an old stream and send nothing until they reinstalled. Three soft failures in a row on
+        # one channel, with no success between them, replace the proxy. Each channel counts
+        # alone: the sealed channel is its own connection, and a success on the authenticated
+        # one (a receipt, a token top-up over the live stream's connection) says nothing about it.
+        case("three_soft_failures_in_a_row_rotate", active(auth=SOFT_FAIL_THRESHOLD - 1), "auto",
+             [rpc_failed("transport_unknown", via="veil")], PROBING, ROTATE),
+        case("soft_failures_rotate_on_the_sealed_channel_too", ACTIVE, "on",
+             [rpc_failed("stream_timeout", via="veil", lane="sealed")] * SOFT_FAIL_THRESHOLD, PROBING, ROTATE),
+        case("a_success_clears_its_own_channel", active(auth=2, sealed=2), "auto",
+             [rpc_succeeded(via="veil", lane="sealed")], active(auth=2), []),
+        case("a_success_on_the_other_channel_does_not_clear", active(sealed=SOFT_FAIL_THRESHOLD - 1), "auto",
+             [rpc_succeeded(via="veil", lane="auth"), rpc_failed("transport_unknown", via="veil", lane="sealed")],
+             PROBING, ROTATE),
+        case("a_background_soft_failure_does_not_count", active(sealed=SOFT_FAIL_THRESHOLD - 1), "auto",
+             [rpc_failed("transport_unknown", via="veil", lane="sealed", foreground=False)],
+             active(sealed=SOFT_FAIL_THRESHOLD - 1), []),
+        case("an_application_error_does_not_count", active(sealed=SOFT_FAIL_THRESHOLD - 1), "auto",
+             [rpc_failed("application_error", via="veil", lane="sealed")], active(sealed=SOFT_FAIL_THRESHOLD - 1), []),
+        case("a_veil_stream_death_does_not_count", active(auth=SOFT_FAIL_THRESHOLD - 1), "auto",
+             [stream_failed("mid_session_timeout", via="veil", method="veil")], active(auth=SOFT_FAIL_THRESHOLD - 1), [INVALIDATE]),
         case("active_reconnects_on_a_veil_stream_death", ACTIVE, "auto",
              [stream_failed("mid_session_timeout", via="veil", method="veil")], ACTIVE, [INVALIDATE]),
         case("auto_leaves_veil_when_direct_answers", ACTIVE, "auto", [rpc_succeeded()], direct(0), [STOP, UNROUTE]),
@@ -162,7 +197,8 @@ def build():
         "now_ms": NOW,
         "veil_target": {"port": PORT, "relay": RELAY},
         "default_config": {"direct_fail_threshold": 2, "mid_session_death_weight": 2,
-                           "allow_direct_to_veil_escalation": True, "veil_cooldown_ms": COOLDOWN},
+                           "allow_direct_to_veil_escalation": True, "veil_cooldown_ms": COOLDOWN,
+                           "veil_soft_fail_threshold": SOFT_FAIL_THRESHOLD},
         "cases": cases,
     }
 
