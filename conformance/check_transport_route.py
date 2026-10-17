@@ -11,6 +11,14 @@ Decision: construct-docs decisions/transport-route-per-platform-shared-vectors.m
 Every RPC event names its `lane`: `auth` (the authenticated channel, which also carries the stream)
 or `sealed` (the channel with no identity, its own connection). VEIL counts soft failures per lane.
 
+A rotation that blames the front it leaves starts with `demote_relay` naming it: the platform
+records a failure for that front, so the next start prefers another. Without it a front that takes
+the connection and then carries nothing was picked again by the same restart (the start only
+checks that the front answers), and the rotation changed nothing. A rotation for a reason that is
+not the front's — a dead local proxy, a background wake, a config change — demotes nothing.
+Forgiving the front again is the platform's pool, not this machine: it clears on a start that
+comes up on it.
+
 A case either asks for the starting state (`initial`) or runs `events` from `state` under `mode`
 and expects the final state and the effects of the last event, in order. Times are Unix
 milliseconds; `now_ms` is fixed per case.
@@ -67,6 +75,8 @@ def eff(kind, **fields):
 STOP, START, INVALIDATE = eff("request_proxy_stop"), eff("request_proxy_start"), eff("invalidate_grpc_client")
 UNROUTE = eff("set_veil_port", port=None)
 ROTATE = [STOP, UNROUTE, START, INVALIDATE]
+DEMOTE = eff("demote_relay", relay=RELAY)
+ROTATE_AWAY = [DEMOTE] + ROTATE
 
 
 def case(name, state, mode, events, expect_state, expect_effects, config=None):
@@ -133,7 +143,13 @@ def build():
         case("cooldown_swallows_failures", {"kind": "veil_cooldown", "until_ms": NOW}, "auto",
              [rpc_failed("transport_unknown")], {"kind": "veil_cooldown", "until_ms": NOW}, []),
 
+        # The local proxy died: our process, not the front, so the front keeps its place.
         case("active_rotates_on_a_hard_failure", ACTIVE, "auto", [rpc_failed("stale_local_proxy", via="veil")], PROBING, ROTATE),
+    ]
+    for failure in ["tls_fingerprint_blocked", "tls_cert_expired", "web_tunnel_blocked"]:
+        cases.append(case(f"{failure}_rotates_away_from_the_front", ACTIVE, "auto",
+                          [rpc_failed(failure, via="veil")], PROBING, ROTATE_AWAY))
+    cases += [
         case("active_reconnects_on_a_soft_failure", ACTIVE, "auto", [rpc_failed("stream_timeout", via="veil")], active(auth=1), [INVALIDATE]),
         # A relay can take a connection and then carry nothing over it. Every failure is then soft
         # (a timeout, a closed connection), and reconnecting goes through the same proxy and the
@@ -143,14 +159,14 @@ def build():
         # alone: the sealed channel is its own connection, and a success on the authenticated
         # one (a receipt, a token top-up over the live stream's connection) says nothing about it.
         case("three_soft_failures_in_a_row_rotate", active(auth=SOFT_FAIL_THRESHOLD - 1), "auto",
-             [rpc_failed("transport_unknown", via="veil")], PROBING, ROTATE),
+             [rpc_failed("transport_unknown", via="veil")], PROBING, ROTATE_AWAY),
         case("soft_failures_rotate_on_the_sealed_channel_too", ACTIVE, "on",
-             [rpc_failed("stream_timeout", via="veil", lane="sealed")] * SOFT_FAIL_THRESHOLD, PROBING, ROTATE),
+             [rpc_failed("stream_timeout", via="veil", lane="sealed")] * SOFT_FAIL_THRESHOLD, PROBING, ROTATE_AWAY),
         case("a_success_clears_its_own_channel", active(auth=2, sealed=2), "auto",
              [rpc_succeeded(via="veil", lane="sealed")], active(auth=2), []),
         case("a_success_on_the_other_channel_does_not_clear", active(sealed=SOFT_FAIL_THRESHOLD - 1), "auto",
              [rpc_succeeded(via="veil", lane="auth"), rpc_failed("transport_unknown", via="veil", lane="sealed")],
-             PROBING, ROTATE),
+             PROBING, ROTATE_AWAY),
         case("a_background_soft_failure_does_not_count", active(sealed=SOFT_FAIL_THRESHOLD - 1), "auto",
              [rpc_failed("transport_unknown", via="veil", lane="sealed", foreground=False)],
              active(sealed=SOFT_FAIL_THRESHOLD - 1), []),
