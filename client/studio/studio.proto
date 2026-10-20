@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package construct.client.studio.v1;
+
+// Client-only. Never mirrored from construct-server, never copied into
+// construct-server/shared/proto. See AGENTS.md (`client/`).
+//
+// Studio mode (Construct Desktop): a host streams a DAW's audio, lossless or Opus, and its
+// windows to the other side of a call. Design: construct-docs/decisions/studio-mode-on-desktop.md.
+//
+// Nothing here goes through the server. Both messages travel on WebRTC data channels of the
+// call's own peer connection, inside its DTLS, whose fingerprint is exchanged inside the
+// session. The channels are negotiated (no in-band open), ordered and reliable:
+//
+//   "studio-control"  id 1   StudioControl
+//   "studio-program"  id 2   ProgramPacket
+//
+// One host per studio. The host sends the program and decides; a guest listens, answers and
+// asks.
+
+enum Codec {
+  CODEC_UNSPECIFIED = 0;
+  // FLAC, 24-bit. Every sample arrives as sent.
+  CODEC_FLAC = 1;
+  // Opus. Perceptual: the level of each band arrives, not the waveform.
+  CODEC_OPUS = 2;
+}
+
+// How the program is encoded. Everything a decoder needs before the first packet.
+message ProgramFormat {
+  Codec codec = 1;
+  uint32 sample_rate = 2;        // Hz
+  uint32 channels = 3;
+  uint32 frames_per_packet = 4;  // FLAC 1024, Opus 960 at 48 kHz
+  uint32 bit_rate = 5;           // Opus only, bits per second; 0 for FLAC
+  bytes magic_cookie = 6;        // the encoder's (FLAC STREAMINFO); may be empty
+  // Increments whenever the format changes during a studio. ProgramPacket carries the epoch it
+  // was encoded under, so packets of the old format still in flight are dropped, not decoded
+  // with the new decoder.
+  uint32 epoch = 7;
+}
+
+// Where the studio's media flows. Each party chooses its own and applies only its own: a party
+// that chose RELAY never offers a host or server-reflexive candidate, whatever it receives.
+enum Path {
+  PATH_UNSPECIFIED = 0;
+  PATH_RELAY = 1;   // through the call's TURN relay; the default
+  PATH_DIRECT = 2;  // peer to peer; each side learns the other's network address
+}
+
+message StudioControl {
+  uint32 version = 1;  // 1
+
+  oneof body {
+    Invite invite = 2;                    // host → guest
+    Accept accept = 3;                    // guest → host
+    Decline decline = 4;                  // guest → host
+    PathDecision path_decision = 5;       // host → guest
+    FormatChange format_change = 6;       // host → guest
+    QualityRequest quality_request = 7;   // guest → host
+    ScreenState screen_state = 8;         // host → guest
+    Leave leave = 9;                      // either way
+    Ping ping = 10;                       // either way
+    Pong pong = 11;                       // the answer to a Ping
+  }
+}
+
+message Invite {
+  ProgramFormat program = 1;
+  bool screen = 2;             // the host's DAW windows will be sent
+  uint32 screen_height = 3;    // pixels, 0 when no screen
+  uint32 buffer_ms = 4;        // the program's playout depth; the screen is delayed to match
+  // No path field: the host's choice is not sent. It reaches the guest only as PathDecision.
+}
+
+// The guest's answer and its own path choice. The host learns the guest's choice; the guest
+// learns the host's only through the decision, and a RELAY decision does not say whose choice
+// it was — it is also what a failed direct attempt falls back to.
+message Accept {
+  Path guest_path = 1;
+}
+
+message Decline {}
+
+// DIRECT only when every party chose it. On DIRECT each side widens its own ICE policy and
+// restarts ICE; on RELAY nothing changes.
+message PathDecision {
+  Path path = 1;
+}
+
+// The program's format is changing (the host switched codec). Packets with the new epoch follow.
+message FormatChange {
+  ProgramFormat program = 1;
+}
+
+// The guest's link cannot keep up and it asks for a lighter codec. The host decides.
+message QualityRequest {
+  Codec codec = 1;
+}
+
+message ScreenState {
+  bool shown = 1;  // false: the host has hidden its windows; the program continues
+}
+
+message Leave {}
+
+message Ping {
+  uint64 sent_at_ns = 1;  // the pinger's monotonic clock; meaningful only to the pinger
+}
+
+message Pong {
+  uint64 sent_at_ns = 1;  // echoed from the Ping
+}
+
+// One packet of the program. `first_frame` counts frames on the host's capture clock from the
+// start of the studio: the listener schedules by it, a jump forward is a packet the host dropped
+// (it becomes silence), and a repeat is ignored.
+message ProgramPacket {
+  uint32 sequence = 1;
+  uint64 first_frame = 2;
+  uint32 format_epoch = 3;
+  bytes payload = 4;  // one encoded packet of ProgramFormat.frames_per_packet frames
+}
