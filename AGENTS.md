@@ -99,6 +99,7 @@ construct-protos/
 ├── signaling/          — WebRTC signaling service
 │   └── signaling_service.proto
 └── client/             — Client-only schemas. Never mirrored, never enters construct-server.
+    └── studio/studio.proto — Desktop studio mode: data-channel messages inside a call, never seen by the server
 ```
 
 `client/` is client-only: never mirrored from `construct-server`, never copied into
