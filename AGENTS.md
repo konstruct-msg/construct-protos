@@ -52,6 +52,13 @@ so a change to `InviteToken` or the CIv1 layout is a change to that file in the 
 History-snapshot vectors: `conformance/knst_history_snapshot.json`, checked by
 `conformance/check_history_snapshot.py`.
 
+Device-certificate vectors: `conformance/knst_device_certificate.json`, checked by
+`conformance/check_device_certificate.py`. What an account's device signs when it vouches for a
+newly linked one, the 5382-byte certificate (`DevicePreKeyBundle.device_certificate`,
+`PublishDeviceCertificate`) and the Flow A proof of keys (`ConfirmDeviceLinkRequest.link_key_proof`).
+construct-core signs and judges; the script rebuilds every byte string but the signatures.
+`decisions/devices-of-an-account-sign-each-other.md`.
+
 Sticker vectors: `conformance/knst_sticker_ref.json`, checked by `conformance/check_sticker_ref.py`
 (needs `protoc`). A sticker is `MessageContent.sticker` *inside* the E2EE plaintext, so it is
 **not** a `ContentType` and gets no row in `knst_content_types.json`; what the clients must agree
