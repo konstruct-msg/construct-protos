@@ -1,196 +1,94 @@
 # AGENTS.md — construct-protos
 
-Context for AI agents working in this repository.
+Shared protobuf definitions and cross-client conformance vectors for the whole Construct
+ecosystem. Consumers: `construct-server`, `construct-core`, `construct-tui`, `construct-android`,
+`construct-messenger`. This repo is where "what a message means" has one authority; a client or
+server that decides it separately drops messages silently.
 
----
+| Area | Read first |
+|---|---|
+| Why these rules exist; checklist before any new protocol feature | `~/Code/construct-docs/decisions/rules-from-the-first-year.md` |
+| Wire format, one authority | `~/Code/construct-docs/decisions/wire-format-one-authority.md` |
+| One meaning, two carriers | `~/Code/construct-docs/decisions/one-meaning-two-carriers.md` |
+| Read-state sync (type 30) | `decisions/read-state-syncs-between-own-devices.md` |
+| Device certificates | `decisions/devices-of-an-account-sign-each-other.md` |
+| Server-trust vectors | `decisions/server-keys-rooted-offline-and-hybrid.md` |
+| Everything else | `~/Code/construct-docs` (vault; its own `AGENTS.md` is authoritative) — `decisions/` paths are relative to it |
 
-## What is construct-protos?
-
-Shared protobuf definitions for the entire Construct ecosystem.
-Used by: `construct-server`, `construct-tui`, `construct-android`, `construct-messenger`.
-(`construct-engine` was retired 2026-07-28 and is not a consumer.)
-
-## Adding a value to `ContentType` — read this first
-
-`core/envelope.proto` owns which content types exist. It does **not** say what a client must do
-with one, and until 2026-08-23 nothing did: iOS and the TUI each carried their own classification
-and had already drifted on 13 and 23 without anything reporting it, because the symptom is a
-payload that renders as a bubble on one client and vanishes on the other.
-
-`conformance/knst_content_types.json` is now that authority, and every client has a test reading
-it. **A new content type gets its row in the same change as the enum value.** Run
-`conformance/check_content_types.py` — it fails if the proto and the vectors disagree about which
-values exist, which is the case where a client's conformance test would pass by never being asked.
-
-Contact-card vectors: `conformance/knst_contact_card.json`, checked by
-`conformance/check_contact_card.py` (needs `protoc`). How a type-27 payload is read — a
-`ContactCard`, or at exactly 32 bytes a bare intake key from before the card — by both clients.
-
-KNST frame vectors: `conformance/knst_frame.json`, checked by `conformance/check_knst_frame.py`
-(`--write` regenerates). The 30-byte plaintext header every body is framed with, and when a frame
-is a control frame (one message, total_chunks 1) and what its body is; and, under `encode`, how a
-body is split into frames (3770 bytes each, at most 256). iOS, Android, the TUI and
-construct-core read it; until 2026-10-02 only their agreement fixed it.
-
-Profile vectors: `conformance/knst_profile_share.json`, checked by
-`conformance/check_profile_share.py` (needs `protoc`, `--write` regenerates). How a
-CONTENT_TYPE_PROFILE (29) payload reads — the avatar is set, removed or unchanged — and when a
-receiver applies one: only if `edited_at_ms` is newer than the one it holds. Both clients read it.
-
-Read-marker vectors: `conformance/knst_read_markers.json`, checked by
-`conformance/check_read_markers.py` (needs `protoc`, `--write` regenerates). How a type-30
-`ReadMarkers` payload reads, when a marker moves a chat's read boundary (strictly later on
-`(sent_at_ms, message_id)`; from anyone but the own account — dropped), and which incoming
-messages a boundary covers. Type 30 is `own_devices_only` in `knst_content_types.json`: never
-addressed to a contact. `decisions/read-state-syncs-between-own-devices.md`.
-
-Invite vectors: `conformance/knst_invite.json`, checked by `conformance/check_invite.py`
-(`--write` regenerates). iOS, Android and the server each build the v5 canonical string and the
-compact binary independently, and a disagreement surfaces only at redeem as "invalid signature" —
-so a change to `InviteToken` or the CIv1 layout is a change to that file in the same commit.
-
-History-snapshot vectors: `conformance/knst_history_snapshot.json`, checked by
-`conformance/check_history_snapshot.py`.
-
-Device-certificate vectors: `conformance/knst_device_certificate.json`, checked by
-`conformance/check_device_certificate.py`. What an account's device signs when it vouches for a
-newly linked one, the 5382-byte certificate (`DevicePreKeyBundle.device_certificate`,
-`PublishDeviceCertificate`) and the Flow A proof of keys (`ConfirmDeviceLinkRequest.link_key_proof`).
-construct-core signs and judges; the script rebuilds every byte string but the signatures.
-`decisions/devices-of-an-account-sign-each-other.md`.
-
-Sticker vectors: `conformance/knst_sticker_ref.json`, checked by `conformance/check_sticker_ref.py`
-(needs `protoc`). A sticker is `MessageContent.sticker` *inside* the E2EE plaintext, so it is
-**not** a `ContentType` and gets no row in `knst_content_types.json`; what the clients must agree
-on instead is the bytes of the oneof and the validator (32-byte pack hash, 1..32-byte emoji), and
-that file is where they agree.
-
-Sticker packs: `messaging/sticker_pack.proto` (`StickerPackManifest`, `StickerEntry`). A pack's
-identity is the SHA-256 of its canonical bytes — proto3 binary, ascending field order, `pack_id`
-and `signature` cleared — and `conformance/knst_sticker_pack.json` fixes those bytes on one
-fixture pack; `check_sticker_pack.py` re-derives them. A client that hashes differently rejects
-every real pack, so a change to that message is a change to that file in the same commit. Schema is `client/history_snapshot.proto` (never
-mirrored). Regenerate with `scripts/gen_history_snapshot_vectors.py`.
-
-Server-trust vectors: `conformance/knst_server_trust.json`, checked by
-`conformance/check_server_trust.py` (standard library only). They fix what the offline root signs
-(a delegation of a server key), what a delegated key signs (`label ‖ kid ‖ body`) and the bodies of
-`SenderCertificate.server_signature_hybrid` and `SignedTreeHead.signature`. The authority is the
-`construct-server-trust` crate in construct-core, which writes the file
-(`write_server_trust_vectors`); the core and construct-server verify its signatures. A change to
-either message's signed fields is a change to that file in the same commit
-(`construct-docs/decisions/server-keys-rooted-offline-and-hybrid.md`).
-
-Full reasoning: `construct-docs/decisions/wire-format-one-authority.md`.
-
----
-
-## Structure
+## The Zen of Konstruct
 
 ```
-construct-protos/
-├── buf.yaml            — buf.build config
-├── core/               — Shared types (crypto, identity, envelope, pagination)
-├── messaging/          — Message content types (e2ee, mls, p2p, content)
-├── services/           — gRPC service definitions (one .proto per service)
-│   ├── auth_service.proto
-│   ├── user_service.proto
-│   ├── messaging_service.proto
-│   ├── notification_service.proto
-│   ├── invite_service.proto
-│   ├── media_service.proto
-│   ├── key_service.proto
-│   ├── sentinel_service.proto
-│   ├── mls_service.proto (stub — not in production)
-│   └── sticker_service.proto
-├── signaling/          — WebRTC signaling service
-│   └── signaling_service.proto
-└── client/             — Client-only schemas. Never mirrored, never enters construct-server.
+Someone has solved it before. Read them first.
+The core decides; the app executes.
+A message names the state it means. Time is not an address.
+Reproduce, then fix.
+One meaning, one carrier.
+Bytes stay bytes.
+Measure, then build.
+The effect is the proof, not the exit code.
+A test that cannot fail is worse than no test.
+Boring before new.
+Temporary is permanent, unless something checks it.
+What nothing reads is not sent.
+Silence is the worst failure: a message that never appears raises no error.
 ```
 
-`client/` is client-only: never mirrored from `construct-server`, never copied into
-`construct-server/shared/proto`. `scripts/sync-from-server.sh` lists `core messaging
-services signaling` and does not touch this directory. iOS `generate_grpc_swift.sh`
-finds any `*.proto` in the repo; TUI `build.rs` lists files and adds a path here when
-that client implements the schema. Do not invent a second generator to keep these
-out of the server — the mirror's directory list is the mechanism.
+Canonical source: `~/Code/construct-docs/decisions/rules-from-the-first-year.md`. Change it there first.
 
----
+## Rules
 
-## Services & Ports
+1. **Prior art first.** A new message type or schema starts with a note: how Signal / MLS (RFC 9420) / Matrix carry it, and why we deviate. Group messages follow MLS framing.
+2. **The core decides.** A proto states shape, not behaviour. What two clients must compute identically lives in `construct-core`; the vectors here are the executable agreement, not a second implementation.
+3. **A control message names the state it refers to.** A new control message carries an epoch, key or number the receiver can compare. A field that exists to be compared with a clock means the message has no address.
+4. **Reproduce before fixing.** A vector that reproduces a disagreement lands red first; the fix turns it green.
+5. **One meaning, one carrier.** A new `content_type` gets its row in `conformance/knst_content_types.json` in the same change as the enum value. Different identifiers get different types, never a bare `string`.
+6. **Bytes stay bytes.** Crypto material, keys, ciphertexts and payloads are `bytes`, never `string`; no base64 or JSON inside a proto field.
+7. **Measure, then build.** A field added for a limit or an optimisation cites the measurement; a field no measurement needs is not added.
+8. **The effect is the proof.** Run the `conformance/check_*.py` for what you touched and read the output — a client test that is never asked a case passes by silence.
+9. **A test must be able to fail.** A new vector is mutation-checked: change one byte of the input and see the check go red. A script that cannot fail is worse than none.
+10. **Depth before breadth.** No schema for a surface (groups, rooms, Studio) until its predecessor is boring on the stand.
+11. **A temporary exception has an end date and a check.** A deprecated field is marked with what replaces it and what check notices when it can go; a stub (`mls_service.proto`) says it is a stub.
+12. **Branch and PR, always;** see Git.
 
-| Service | Port | Description |
-|---------|------|-------------|
-| AuthService | 50051 | Registration, login, device management, PoW |
-| UserService | 50052 | Profile, contacts, blocking, search |
-| MessagingService | 50053 | Send/receive E2EE messages, stream |
-| NotificationService | 50054 | APNs/FCM push notifications |
-| InviteService | 50055 | Invite link creation and redemption |
-| MediaService | 50056 | S3 upload, presigned URLs |
-| KeyService | 50057 | X3DH pre-key management |
-| SentinelService | 50059 | Anti-spam, rate limiting, trust scoring |
-| SignalingService | 50060 | WebRTC SDP/ICE signaling |
-| StickerService | 50056 (with MediaService, media-service) | Public content-addressed sticker packs; every RPC unauthenticated, integrity by signed manifest + hashes |
+**Three questions for a change to a delivery or crypto message**, answered in the commit message: (1) what does the server or any relay learn that it did not before — every new field outside the E2EE plaintext is something the server reads; (2) what can a party withhold or substitute that it could not before; (3) which trust boundary moves, and which way.
 
----
+**A producer with no consumer is a defect.** A new message or field lands with a reader in at least one client or the server, or is not added.
 
-## Editing protos
+## Invariants of this repo
 
-```bash
-# Validate
-buf lint
+### Schema
 
-# Generate (Swift — for construct-messenger)
-buf generate --template buf.gen.swift.yaml
+- Never edit `generated/`. Field numbers are immutable once in production — never reuse one; add new fields at the end of a message, never in the middle.
+- `buf lint` before pushing. Generate: `buf generate --template buf.gen.swift.yaml` (Swift), `buf.gen.kotlin.yaml` (Kotlin); Rust is `tonic-build` in the consuming crate's `build.rs`.
+- A new service goes into the ports list below.
+- `client/` is client-only: never mirrored from `construct-server`, never copied into `construct-server/shared/proto`. `scripts/sync-from-server.sh` lists `core messaging services signaling` and must not gain `client/`. Do not invent a second generator to keep it out — the mirror's directory list is the mechanism.
+- Layout: `core/` shared types · `messaging/` content types · `services/` one `.proto` per gRPC service (`mls_service.proto` is a stub, not in production) · `signaling/` · `client/`.
 
-# Generate (Kotlin — for construct-android)
-buf generate --template buf.gen.kotlin.yaml
+Ports: Auth 50051 · User 50052 · Messaging 50053 · Notification 50054 · Invite 50055 · Media 50056 · Key 50057 · Sentinel 50059 · Signaling 50060. StickerService shares 50056 with Media: public content-addressed packs, every RPC unauthenticated, integrity by signed manifest + hashes.
 
-# Generate (Rust — for construct-server / construct-engine)
-# Done in the consuming crate's build.rs via tonic-build
-```
+### Conformance vectors
 
-**Rules:**
-- Never edit files in `generated/` — they are auto-generated
-- All `bytes` fields that carry crypto material must be `bytes`, not `string`
-- Proto field numbers are immutable once in production — never reuse a field number
-- Add new fields at the end of a message; never insert in the middle
-- When adding a new service, add it to this AGENTS.md service table
-- `client/` is not a server mirror. Do not add it to `sync-from-server.sh`. Do not copy it into `construct-server`.
+`core/envelope.proto` owns which content types exist; `conformance/knst_content_types.json` owns what a client must do with one (transcript or control, handler, whether a sealed envelope may name it). Every client has a test reading it. `check_content_types.py` fails when the proto and the vectors disagree on which values exist.
 
----
----
+Each file below is changed in the same commit as the message it fixes; its `check_*.py` is the gate (`--write` regenerates where the script offers it; "protoc" means it needs `protoc`).
 
-## Documentation & session notes
+| Vector | Fixes | Notes |
+|---|---|---|
+| `knst_contact_card.json` | type-27 payload: a `ContactCard`, or exactly 32 bytes = bare intake key from before the card | protoc |
+| `knst_frame.json` | the 30-byte plaintext KNST header; when a frame is a control frame (total_chunks 1); how a body splits (3770 bytes each, ≤256 frames) | iOS, Android, TUI, core read it |
+| `knst_profile_share.json` | type-29 payload: avatar set / removed / unchanged; applied only if `edited_at_ms` is newer | protoc |
+| `knst_read_markers.json` | type-30: a marker moves the boundary only if strictly later on `(sent_at_ms, message_id)`, never from anyone but the own account; type 30 is `own_devices_only` | protoc |
+| `knst_invite.json` | v5 canonical string and compact CIv1 binary, built independently by iOS, Android and server; a mismatch shows only at redeem as "invalid signature" | |
+| `knst_history_snapshot.json` | history snapshot; schema is `client/history_snapshot.proto` (never mirrored) | regenerate with `scripts/gen_history_snapshot_vectors.py` |
+| `knst_device_certificate.json` | what a device signs when vouching for a linked one: the 5382-byte `DevicePreKeyBundle.device_certificate` and `ConfirmDeviceLinkRequest.link_key_proof` | core signs and judges; script rebuilds every byte string but the signatures |
+| `knst_sticker_ref.json` | a sticker is `MessageContent.sticker` inside the E2EE plaintext — **not** a `ContentType`, no row in `knst_content_types.json`; oneof bytes and validator (32-byte pack hash, 1..32-byte emoji) | protoc |
+| `knst_sticker_pack.json` | `messaging/sticker_pack.proto`: pack identity = SHA-256 of canonical bytes (proto3 binary, ascending field order, `pack_id` and `signature` cleared); a different hash rejects every real pack | |
+| `knst_server_trust.json` | what the offline root signs, what a delegated key signs (`label ‖ kid ‖ body`), bodies of `SenderCertificate.server_signature_hybrid` and `SignedTreeHead.signature` | authority is the `construct-server-trust` crate in construct-core (`write_server_trust_vectors`); stdlib only |
 
-All docs live in `~/Code/construct-docs` (Obsidian vault, flat domain folders:
-`architecture/ backend/ client/ cryptocore/ security/ decisions/ sessions/ …`).
-**The vault's `AGENTS.md` is authoritative** for structure and writing rules — read it before
-contributing docs. If a path is missing, search the domain folder rather than trusting old links.
+Other vectors without a note here (`knst_safety_number`, `knst_device_copy_tag`, `knst_token_seal`, `transport_route`) follow the same rule: `check_*.py` or the owning crate is the gate, and a change to the message is a change to the file.
 
-After any session with architectural changes, design decisions, root-cause analysis, or
-non-obvious choices:
+## Git
 
-1. Write a session note `sessions/YYYY-MM-DD-<topic>.md` (sections: Context / What Changed /
-   **Why** / Decisions / Open Questions) — `## Why` with rejected alternatives is mandatory.
-2. If it constrains future work, add/update `decisions/<slug>.md`.
-3. Patch the affected spec in its domain folder in the **same** session.
-4. Append one line to `~/Code/construct-docs/log.md`: `[YYYY-MM-DD HH:MM] note | <topic>`.
-
-Session notes are plain markdown, no YAML frontmatter; `[[wikilinks]]` to other notes are welcome.
-Before creating a note, search for an existing one and extend it rather than duplicating.
-
-## Git workflow (branch + PR only)
-
-**Never commit on `main`.** Every change goes on a topic branch cut from an up-to-date `main`
-(`feat|fix|docs|chore|test/<topic>`) and lands through a GitHub pull request. Agents push and
-open the PR only when asked.
-
-`main` is what a release is built from, so it moves only by a reviewed merge. From 2026-09-11 to
-2026-10-01 changes went straight to `main` across the construct-* repos — two people on the
-project made a branch per change look like ceremony. That was reversed on purpose: the habit has
-to be in place before there is a release for it to break.
-
-A commit that landed on `main` by mistake and is not pushed moves off it with
-`git branch <topic> && git reset --keep origin/main && git switch <topic>`. Pushed history is
-never rewritten.
+- **Never commit on `main`.** Topic branch (`feat|fix|docs|chore|test/<topic>`) from up-to-date `main`, PR into `main`; `main` is what a release is built from. The owner merges.
+- Check `git branch --show-current` and `git status` before every commit; other sessions share the tree. Never `checkout -- .`, `restore .`, `reset --hard` or `stash`; name files. Never rewrite pushed history. A commit made on `main` by mistake and not pushed moves with `git branch <topic> && git reset --keep origin/main && git switch <topic>`.
+- Docs: the vault's `AGENTS.md` is authoritative; a decision that constrains future work goes to `decisions/`, one line to `log.md`.
