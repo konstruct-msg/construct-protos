@@ -29,22 +29,45 @@ def field(tag: int, value: bytes) -> bytes:
     return bytes([tag, len(value)]) + value
 
 
+def varint_field(tag: int, value: int) -> bytes:
+    out = bytearray([tag])
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
 def build() -> dict:
     cases = [
         {"name": "key_and_address", "payload": (field(0x0A, KEY) + field(0x12, ADDR)).hex(),
-         "reads_as": "card", "intake_key": KEY.hex(), "account_address": ADDR.hex()},
+         "reads_as": "card", "intake_key": KEY.hex(), "account_address": ADDR.hex(),
+         "intake_generation": 0},
+        # Since 2026-10-29: the key's generation. 300 needs two varint bytes, so a reader that
+        # takes one byte reads it wrong.
+        {"name": "key_address_generation",
+         "payload": (field(0x0A, KEY) + field(0x12, ADDR) + varint_field(0x18, 300)).hex(),
+         "reads_as": "card", "intake_key": KEY.hex(), "account_address": ADDR.hex(),
+         "intake_generation": 300},
         {"name": "address_only", "payload": field(0x12, ADDR).hex(),
-         "reads_as": "card", "intake_key": None, "account_address": ADDR.hex()},
+         "reads_as": "card", "intake_key": None, "account_address": ADDR.hex(),
+         "intake_generation": 0},
         {"name": "key_only", "payload": field(0x0A, KEY).hex(),
-         "reads_as": "card", "intake_key": KEY.hex(), "account_address": None},
+         "reads_as": "card", "intake_key": KEY.hex(), "account_address": None,
+         "intake_generation": 0},
         {"name": "legacy_bare_key", "payload": KEY.hex(),
-         "reads_as": "legacy_intake_key", "intake_key": KEY.hex(), "account_address": None},
+         "reads_as": "legacy_intake_key", "intake_key": KEY.hex(), "account_address": None,
+         "intake_generation": 0},
     ]
     return {
         "_doc": "CONTENT_TYPE_CONTACT_CARD (27) payloads. 32 bytes exactly = a bare intake key from "
                 "a build before the card; anything else is a ContactCard proto. A field of the "
-                "wrong length is ignored, not an error. Checked by check_contact_card.py. "
-                "Decision: construct-docs decisions/contact-card-carries-the-address-back.md.",
+                "wrong length is ignored, not an error. intake_generation absent = 0, a key from "
+                "before generations; a holder replaces its key only with a higher generation "
+                "(construct-core intake_offer). Checked by check_contact_card.py. Decisions: "
+                "construct-docs decisions/contact-card-carries-the-address-back.md, "
+                "decisions/intake-key-is-the-accounts-not-the-devices.md.",
         "cases": cases,
     }
 
@@ -73,6 +96,10 @@ def main() -> int:
             if present != (case[name] is not None):
                 print(f"{case['name']}: {name} presence disagrees with protoc")
                 return 1
+        match = re.search(r"^intake_generation: (\d+)$", text, re.M)
+        if (int(match.group(1)) if match else 0) != case["intake_generation"]:
+            print(f"{case['name']}: intake_generation disagrees with protoc")
+            return 1
     print(f"{VECTORS.name}: {len(fresh['cases'])} cases — consistent")
     return 0
 
