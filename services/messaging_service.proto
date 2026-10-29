@@ -376,8 +376,10 @@ enum IntakeVerdict {
   // set, the wrong length, or the recipient published nothing for these epochs.
   INTAKE_VERDICT_NOT_ACCEPTED = 3;
 
-  // The server could not check (its tag store was unavailable, or it has no token key). Not a
-  // statement about the key: a sender must not drop a working key because the server was down.
+  // The server could not check: its tag store was unavailable, it has no token key, or the tag
+  // did not open with the server's key (the sender sealed to a stale server key — a fault of the
+  // seal, not of the intake key). Not a statement about the key: a sender must not suspend a
+  // working key because the server was down or rotated.
   INTAKE_VERDICT_UNCHECKED = 4;
 }
 
