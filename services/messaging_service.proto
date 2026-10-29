@@ -356,8 +356,12 @@ message SendMessageResponse {
 
 // The server's answer to an envelope's intake credential.
 //
-// Only NOT_ACCEPTED means "the key you hold for this recipient is no good": the sender drops it
-// and pays tokens until a new contact card arrives. Every other value keeps the key.
+// Only NOT_ACCEPTED means "the key you hold for this recipient is not accepted now": the sender
+// stops presenting it until the epoch rolls and pays tokens meanwhile, then tries it once more.
+// Not dropped: the commonest cause is a recipient device whose window lapsed while it was off,
+// and that key works again as soon as the device publishes; a dropped key would never come back,
+// because the recipient has no reason to send its card again. Every other value keeps the key
+// in use.
 enum IntakeVerdict {
   // Not reported: SendMessage, or a server older than the field. Keep the key.
   INTAKE_VERDICT_UNSPECIFIED = 0;
