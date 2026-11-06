@@ -37,7 +37,7 @@ Canonical source: `~/Code/construct-docs/decisions/rules-from-the-first-year.md`
 
 ## Rules
 
-1. **Prior art first.** A new message type or schema starts with a note: how Signal / MLS (RFC 9420) / Matrix carry it, and why we deviate. Group messages follow MLS framing.
+1. **Prior art first.** A new message type or schema starts with a note: how Signal / MLS (RFC 9420) / Matrix carry it, and why we deviate. Group messages follow MLS framing. Read them, do not recall them: the note links the code or spec it read (Session too when the question is metadata). For a delivery, crypto or privacy mechanism it answers what theirs does, who may call it and what a refused caller sees, and what happens to a party without the credential; it lists what in ours is our own, why, and what would let us remove it; and it gives the share of real traffic each new condition or exception affects. `~/Code/construct-docs/scripts/check_prior_art.py` refuses a decision note without the link.
 2. **The core decides.** A proto states shape, not behaviour. What two clients must compute identically lives in `construct-core`; the vectors here are the executable agreement, not a second implementation.
 3. **A control message names the state it refers to.** A new control message carries an epoch, key or number the receiver can compare. A field that exists to be compared with a clock means the message has no address.
 4. **Reproduce before fixing.** A vector that reproduces a disagreement lands red first; the fix turns it green.
